@@ -4,6 +4,7 @@
 
 #include "AP_Motors_Class.h"
 #include "AP_Motors_Thrust_Linearization.h"
+#include <AP_FloatConfig/float_config.h>
 
 #define AP_MOTORS_YAW_HEADROOM_DEFAULT  200
 #define AP_MOTORS_THST_EXPO_DEFAULT     0.65f   // set to 0 for linear and 1 for second order approximation
@@ -48,7 +49,20 @@ public:
 
     // update estimated throttle required to hover
     void                update_throttle_hover(float dt);
+#if AP_FLOAT_PATCHES_ENABLED
+    // Float: the floor is a parameter, not a constant. The stock 0.125 is
+    // below no real multicopter's hover throttle but well above a buoyant
+    // airship's (V0 measures 0.06 to 0.35 depending on ballast), and a
+    // feed-forward the firmware cannot represent is the measured cause of
+    // the QHOVER climb bias and the dead lower third of the throttle stick
+    // (test-flights Flight_report_2026-07-11). Default is the stock value,
+    // so a build with this patch compiled in still flies stock until
+    // Q_M_THST_HVR_MIN is moved.
+    virtual float       get_throttle_hover() const override { return constrain_float(_throttle_hover, get_throttle_hover_min(), AP_MOTORS_THST_HOVER_MAX); }
+    float               get_throttle_hover_min() const { return constrain_float(_throttle_hover_min, 0.0f, AP_MOTORS_THST_HOVER_MAX); }
+#else
     virtual float       get_throttle_hover() const override { return constrain_float(_throttle_hover, AP_MOTORS_THST_HOVER_MIN, AP_MOTORS_THST_HOVER_MAX); }
+#endif
 
     // passes throttle directly to all motors for ESC calibration.
     // throttle_input is in the range of 0 ~ 1 where 0 will send get_pwm_output_min() and 1 will send get_pwm_output_max()
@@ -190,6 +204,9 @@ protected:
     AP_Int16            _pwm_max;               // maximum PWM value that will ever be output to the motors (if 0, vehicle's throttle input channel's max pwm used)
     AP_Float            _throttle_hover;        // estimated throttle required to hover throttle in the range 0 ~ 1
     AP_Int8             _throttle_hover_learn;  // enable/disabled hover thrust learning
+#if AP_FLOAT_PATCHES_ENABLED
+    AP_Float            _throttle_hover_min;    // Float: lower clamp on the hover throttle, on both the read and the learn
+#endif
     AP_Int8             _disarm_disable_pwm;    // disable PWM output while disarmed
 
     // Maximum lean angle of yaw servo in degrees. This is specific to tricopter

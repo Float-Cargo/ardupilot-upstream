@@ -33,18 +33,41 @@ modify-delete conflict.
 | `fc/scripts/make_manifest.py` | new | Derives `manifest.json` from the built artifacts | — | Ours alone |
 | `fc/scripts/disable_upstream_workflows.sh` | new | Turns off the inherited upstream workflows server-side | — | Re-run after every rebase; new upstream workflows arrive enabled |
 | `.github/workflows/fc-build.yml` | new | The fork's own continuous integration | — | Ours alone; upstream never adds a file by this name |
-| `ArduPlane/float_config.h` | new | `AP_FLOAT_*` feature macros with defaults | — | Ours alone; header only, no upstream file includes it yet |
+| `ArduPlane/float_config.h` | new | Vehicle-side spelling of the feature macros; now a one-line include of the library header | — | Ours alone |
+| `libraries/AP_FloatConfig/float_config.h` | new | The `AP_FLOAT_*` feature macros with defaults, including `AP_FLOAT_PATCHES_ENABLED`, reachable from `libraries/` as well as from the vehicle | — | Ours alone |
+| `libraries/AP_Motors/AP_MotorsMulticopter.h` | edited | The hover-throttle floor becomes the `Q_M_THST_HVR_MIN` parameter on the read clamp, plus the member that holds it | `AP_FLOAT_PATCHES_ENABLED` | One line of `get_throttle_hover()` and one member; upstream rewrites of this accessor are the rebase risk |
+| `libraries/AP_Motors/AP_MotorsMulticopter.cpp` | edited | The same floor on the learn clamp, and the parameter table entry (group index 46) | `AP_FLOAT_PATCHES_ENABLED` | One line of `update_throttle_hover()` and one `AP_GROUPINFO`; index 46 was free at 4.7.0 and upstream may claim it |
+| `ArduPlane/tiltrotor.h` | edited | Declares `Q_TILT_MAX_EXT`, `Q_TILT_YAW_MAX`, `Q_TILT_PIT_GAIN` and the two helpers that read them | `AP_FLOAT_PATCHES_ENABLED` | Member and method declarations only |
+| `ArduPlane/tiltrotor.cpp` | edited | Commanded tilt may pass 90 deg to `Q_TILT_MAX_EXT`; the vectored-yaw wedge gets its own limit `Q_TILT_YAW_MAX`, decoupled from `Q_TILT_YAW_ANGLE`'s role in the tilt-to-servo mapping; `vectoring()` gains a fore/aft `pitch*sin(tilt)` term on `Q_TILT_PIT_GAIN`; parameter table entries 11-13 | `AP_FLOAT_PATCHES_ENABLED` | Four call sites of `get_forward_flight_tilt()`, `tilt_over_max_angle()`, and the output block of `vectoring()`; upstream reworks `vectoring()` occasionally, so that block is the real rebase risk |
 
-## Zero upstream edits at this point
+## The zero-diff state, and what replaced it
 
-Nothing in the table is `edited`. That is the whole point of the
-`fc-4.7.0-v0.0` state: the compiled behavior of this fork is bit-for-bit stock
-`Plane-4.7.0`, because the only additions are documentation, build and
-continuous-integration scaffolding outside the compiled sources, plus one
-header that no translation unit includes. The build system, the release
-pipeline and the simulation gate are therefore proven on a firmware that cannot
-have changed how the vehicle flies, which is what makes the first genuinely
-custom build a change of one variable rather than two.
+`fc-4.7.0-v0.0` was the state in which nothing in the table was `edited`: the
+compiled behavior of the fork was bit-for-bit stock `Plane-4.7.0`, because the
+only additions were documentation, build and continuous-integration
+scaffolding outside the compiled sources plus one header that no translation
+unit included. That is what made the first genuinely custom build a change of
+one variable rather than two, and it is still the comparison baseline: every
+Float claim about how the vehicle flies is measured against a binary built
+from this same tree with the feature macro off.
+
+The four `edited` rows above are the first upstream touches, and they are all
+one feature: the surgical patches to the stock quadplane path
+(`test-flights/docs/Stabilized_forward_mode_design.md` section 3, Atlas
+`projects/controls-test.md` G4). Every hunk in all four files sits inside an
+`#if AP_FLOAT_PATCHES_ENABLED` guard, and each guard that replaces a stock line
+carries that line unchanged in its `#else`, so with the macro off those files
+are byte-identical to `fc/sitl-base-4.7.0`. `gates/g4_patches.py` in
+`controls-test` asserts exactly that, file by file, by resolving the guard
+itself and diffing the result against the stock blob — a stronger statement
+than reading the patch, and the reason a zero-diff build remains available for
+every future A/B.
+
+Two of the four also carry a new parameter each, which is the other rebase
+risk: `Q_M_THST_HVR_MIN` takes `AP_MotorsMulticopter` group index 46 and
+`Q_TILT_MAX_EXT` / `Q_TILT_YAW_MAX` / `Q_TILT_PIT_GAIN` take `Tiltrotor`
+indices 11 to 13. All were free at 4.7.0. If upstream claims one, the
+parameter moves and the ship's parameter file moves with it.
 
 The upstream touches the planned control work will need are named in advance in
 Section 2.2 of `v0-sim/docs/firmware/build-system.md` — mode registration in

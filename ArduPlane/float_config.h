@@ -1,23 +1,13 @@
 #pragma once
 
 /*
-  Float Cargo feature macros.
+  Float Cargo feature macros, vehicle-side spelling.
 
-  Every piece of Float code is compiled under one of these so that a build can
-  be diffed back toward stock ArduPilot behavior by flipping a single flag,
-  which is what makes an A/B comparison on the bench or in the simulator a
-  one-variable experiment. Defaults are on; override per build with waf's
-  --define AP_FLOAT_MODES_ENABLED=0 (which works for SITL and ChibiOS targets
-  alike) or, on ChibiOS targets only, with an --extra-hwdef overlay.
-
-  The #ifndef guards are what make the --define override work: waf's --define
-  reaches the compiler as -D, which is seen before this header.
+  The definitions moved to libraries/AP_FloatConfig/float_config.h when the
+  first Float patch reached into libraries/AP_Motors, because a library may
+  not include a vehicle header and the two halves of one A/B switch must not
+  be two different macros. This file stays so that the include path fc/main
+  opened with keeps resolving.
  */
 
-#ifndef AP_FLOAT_MODES_ENABLED
-#define AP_FLOAT_MODES_ENABLED 1
-#endif
-
-#ifndef AP_FLOAT_MOTORS_ENABLED
-#define AP_FLOAT_MOTORS_ENABLED 1
-#endif
+#include <AP_FloatConfig/float_config.h>

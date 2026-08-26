@@ -82,6 +82,30 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("WING_FLAP", 10, Tiltrotor, flap_angle_deg, 0),
 
+#if AP_FLOAT_PATCHES_ENABLED
+    // @Param: MAX_EXT
+    // @DisplayName: Tiltrotor maximum commanded tilt angle
+    // @Description: The largest tilt angle a pilot or the forward-throttle logic may command in a VTOL mode. The stock firmware clamps commanded tilt at 90 degrees; a vectored airship reaches powered descent only past vertical-down, which the servo arc already covers. Values above 90 also keep vectored yaw enabled up to this angle. Leave at 90 for stock behaviour, and never set it beyond what the tilt servo arc can physically reach.
+    // @Units: deg
+    // @Range: 0 180
+    // @User: Advanced
+    AP_GROUPINFO("MAX_EXT", 11, Tiltrotor, max_angle_ext_deg, 90),
+
+    // @Param: YAW_MAX
+    // @DisplayName: Tiltrotor vectored yaw wedge limit
+    // @Description: Half-width in degrees of the differential-tilt wedge used for yaw. Zero uses Q_TILT_YAW_ANGLE, which is the stock behaviour. This exists separately because Q_TILT_YAW_ANGLE also defines the aft end of the tilt-to-servo mapping, so raising it to widen the wedge would rescale every tilt angle the firmware commands.
+    // @Units: deg
+    // @Range: 0 90
+    // @User: Advanced
+    AP_GROUPINFO("YAW_MAX", 12, Tiltrotor, tilt_yaw_max, 0),
+
+    // @Param: PIT_GAIN
+    // @DisplayName: Tiltrotor fore/aft pitch vectoring gain
+    // @Description: Gain on the fore/aft differential tilt used for pitch in VTOL modes, scaled by sin(tilt). Zero is stock behaviour, where pitch authority fades as cos(tilt) and nothing replaces it. The offset it produces shares the same wedge as vectored yaw.
+    // @Range: 0 2
+    // @User: Advanced
+    AP_GROUPINFO("PIT_GAIN", 13, Tiltrotor, pitch_gain, 0),
+#endif
     AP_GROUPEND
 };
 
@@ -207,6 +231,42 @@ float Tiltrotor::get_forward_flight_tilt() const
 {
     return 1.0 - ((flap_angle_deg * (1/90.0)) * SRV_Channels::get_slew_limited_output_scaled(SRV_Channel::k_flap_auto) * 0.01);
 }
+#if AP_FLOAT_PATCHES_ENABLED
+/*
+  Float: the largest tilt a pilot or the forward-throttle logic may command.
+
+  Stock clamps every commanded tilt at get_forward_flight_tilt(), i.e. 90
+  degrees, because a tiltrotor aeroplane has nothing to do past vertical-down.
+  A buoyant airship does: past 90 the thrust vector gains a downward
+  component, which is the only powered descent the vehicle has, and the V0's
+  servo arc runs 60 degrees past vertical-down already (Atlas
+  v0-flight-dynamics, servo re-clock 2026-07-13). Q_TILT_MAX_EXT defaults to
+  90, so a build carrying this patch still clamps exactly where stock does
+  until the parameter is moved.
+ */
+float Tiltrotor::get_max_commanded_tilt() const
+{
+    return MAX(get_forward_flight_tilt(), constrain_float(max_angle_ext_deg, 0, 180) * (1/90.0));
+}
+
+/*
+  Float: half-width of the vectored-yaw wedge, as a fraction of the servo arc.
+
+  Stock uses zero_out, the aft part of the arc, which ties the yaw authority
+  to Q_TILT_YAW_ANGLE. That parameter also sets where the firmware believes
+  the arc's aft end is, so raising it to widen the wedge silently rescales
+  every tilt angle: on the V0's rigging, taking Q_TILT_YAW_ANGLE from 30 to
+  90 would put the nacelles about 40 degrees forward of vertical at hover.
+  Q_TILT_YAW_MAX widens the wedge on its own, and zero keeps stock behaviour.
+ */
+float Tiltrotor::get_yaw_wedge(float total_angle, float zero_out) const
+{
+    if (!is_positive(tilt_yaw_max) || !is_positive(total_angle)) {
+        return zero_out;
+    }
+    return constrain_float(tilt_yaw_max / total_angle, 0.0f, 1.0f);
+}
+#endif
 
 /*
   update motor tilt for continuous tilt servos
@@ -299,7 +359,11 @@ void Tiltrotor::continuous_update(void)
         // set to quadplane.forward_throttle_pct()
         const float fwd_g_demand = 0.01 * quadplane.forward_throttle_pct();
         const float fwd_tilt_deg = MIN(degrees(atanf(fwd_g_demand)), (float)max_angle_deg);
+#if AP_FLOAT_PATCHES_ENABLED
+        slew(MIN(fwd_tilt_deg * (1/90.0), get_max_commanded_tilt()));
+#else
         slew(MIN(fwd_tilt_deg * (1/90.0), get_forward_flight_tilt()));
+#endif
         return;
     } else if (!quadplane.assisted_flight &&
                (plane.control_mode == &plane.mode_qacro ||
@@ -312,7 +376,11 @@ void Tiltrotor::continuous_update(void)
         } else {
             // manual control of forward throttle up to max VTOL angle
             float settilt = 0.01f * quadplane.forward_throttle_pct();
+#if AP_FLOAT_PATCHES_ENABLED
+            slew(MIN(settilt * max_angle_deg * (1/90.0), get_max_commanded_tilt()));
+#else
             slew(MIN(settilt * max_angle_deg * (1/90.0), get_forward_flight_tilt())); 
+#endif
         }
         return;
     }
@@ -328,7 +396,11 @@ void Tiltrotor::continuous_update(void)
         // Q_TILT_MAX. Below 50% throttle we decrease linearly. This
         // relies heavily on Q_VFWD_GAIN being set appropriately.
        float settilt = constrain_float((SRV_Channels::get_output_scaled(SRV_Channel::k_throttle)-MAX(plane.aparm.throttle_min.get(),0)) * 0.02, 0, 1);
+#if AP_FLOAT_PATCHES_ENABLED
+       slew(MIN(settilt * max_angle_deg * (1/90.0), get_max_commanded_tilt()));
+#else
        slew(MIN(settilt * max_angle_deg * (1/90.0), get_forward_flight_tilt())); 
+#endif
     }
 }
 
@@ -612,7 +684,11 @@ void Tiltrotor::vectoring(void)
     } else {
         const float yaw_out = motors->get_yaw()+motors->get_yaw_ff();
         const float roll_out = motors->get_roll()+motors->get_roll_ff();
+#if AP_FLOAT_PATCHES_ENABLED
+        const float yaw_range = get_yaw_wedge(total_angle, zero_out);
+#else
         const float yaw_range = zero_out;
+#endif
 
         // Scaling yaw with throttle
         const float throttle = motors->get_throttle_out();
@@ -649,6 +725,42 @@ void Tiltrotor::vectoring(void)
             motors->limit.yaw = true;
         }
 
+#if AP_FLOAT_PATCHES_ENABLED
+        /*
+          Float: fore/aft differential tilt for pitch.
+
+          Tilting the front pair by +d and the rear pair by -d makes a pitch
+          moment about the centre of volume of -T*(x_fore + x_aft)*sin(tilt)*d
+          -- the z arm cancels between the pairs, so the whole authority is
+          the sin(tilt) term. That is the mirror image of the multicopter
+          mixer's pitch authority, which is differential thrust and dies as
+          cos(tilt): together they cover the arc that neither covers alone,
+          and the 40-60 degree band where the ship actually cruises is where
+          the stock mixer is weakest. The front pair takes the negative
+          offset because tilting the nose motors further forward pitches the
+          nose down, and motors->get_pitch() is positive nose-up.
+         */
+        const float pitch_out = motors->get_pitch() + motors->get_pitch_ff();
+        float pitch_scale = pitch_gain * pitch_out * sin_tilt;
+        if (fabsf(pitch_scale) > 1.0) {
+            pitch_scale = constrain_float(pitch_scale, -1.0, 1.0);
+            motors->limit.pitch = true;
+        }
+        const float pitch_offset = pitch_scale * yaw_range;
+
+        // if the pitch offset saturates the front and the rear pair alike
+        // there is no differential left to make a moment with
+        if (((left_tilt - pitch_offset > 1.0) || (left_tilt - pitch_offset < 0.0)) &&
+            ((left_tilt + pitch_offset > 1.0) || (left_tilt + pitch_offset < 0.0))) {
+            motors->limit.pitch = true;
+        }
+
+        SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorLeft, 1000.0 * constrain_float(left_tilt - pitch_offset, 0.0, 1.0));
+        SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorRight, 1000.0 * constrain_float(right_tilt - pitch_offset, 0.0, 1.0));
+        SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorRear, 1000.0 * constrain_float(base_output, 0.0, 1.0));
+        SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorRearLeft, 1000.0 * constrain_float(left_tilt + pitch_offset, 0.0, 1.0));
+        SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorRearRight, 1000.0 * constrain_float(right_tilt + pitch_offset, 0.0, 1.0));
+#else
         // constrain and scale to output range
         left_tilt = constrain_float(left_tilt,0.0,1.0) * 1000.0;
         right_tilt = constrain_float(right_tilt,0.0,1.0) * 1000.0;
@@ -658,6 +770,7 @@ void Tiltrotor::vectoring(void)
         SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorRear, 1000.0 * constrain_float(base_output,0.0,1.0));
         SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorRearLeft, left_tilt);
         SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorRearRight, right_tilt);
+#endif
     }
 }
 
@@ -821,7 +934,14 @@ bool Tiltrotor_Transition::allow_vfwd() const
 bool Tiltrotor::tilt_over_max_angle(void) const
 {
     const float tilt_threshold = (max_angle_deg/90.0f);
+#if AP_FLOAT_PATCHES_ENABLED
+    // Float: past-90 tilt is still VTOL flight on an airship, so the ceiling
+    // that decides "stop vectoring yaw, this is fixed wing now" has to move
+    // with Q_TILT_MAX_EXT or the wedge dies exactly where it is needed most.
+    return (current_tilt > MIN(tilt_threshold, get_max_commanded_tilt()));
+#else
     return (current_tilt > MIN(tilt_threshold, get_forward_flight_tilt()));
+#endif
 }
 
 // throttle of forward flight motors including any tilting motors
