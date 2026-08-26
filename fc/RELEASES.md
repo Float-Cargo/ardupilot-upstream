@@ -26,3 +26,18 @@ the Float identity appears in the boot status text.
 The `v0.0` row exists so that the release path is exercised while the firmware
 is still stock behavior. It carries no Float code, so there is nothing about it
 worth flying that the ship does not already have.
+
+## fc-4.7.0-v0.0 — zero-diff dry run (2026-08-26)
+
+- **Commit**: `5fa07397` — last bit-stock commit on `fc/main` (base
+  `Plane-4.7.0` = `1511f271` + fork CI/manifest files only; predates
+  the AP_FLOAT_PATCHES set in `70e23383`).
+- **Pipeline**: run 33020896414 — three board builds, armed sitl-suite
+  gate (v0-sim @ main), release job. All green.
+- **Purpose**: prove the rail before any behavioral diff ships
+  (build-system.md P2). No approval for flight intended or implied.
+- **Ship install**: NOT for the ship. Bench-flash a SPARE cube from the
+  release assets (`uploader.py`, board-id checked), verify
+  AUTOPILOT_VERSION reports `5fa07397`, param snapshot before/after —
+  pending bench access (2026-08-27 RFS trip if a spare travels).
+
