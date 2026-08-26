@@ -125,6 +125,8 @@ private:
     AP_Float _fx_max;           // full forward demand, newtons
     AP_Float _hover_tc;         // buoyancy trim filter time constant, seconds
     AP_Float _hover_init;       // buoyancy trim at boot, throttle units
+    AP_Float _heave_mass_kg;    // mass plus heave added mass, the a_up coefficient
+    AP_Float _heave_damp_nsm;   // linear heave damping, the v_up coefficient
     AP_Float _pwm_vert_l;       // tilt rigging: pulse at vertical, port side
     AP_Float _pwm_vert_r;       // tilt rigging: pulse at vertical, starboard side
     AP_Float _pwm_per_deg;      // tilt rigging: microseconds per degree
