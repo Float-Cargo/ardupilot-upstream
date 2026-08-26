@@ -64,3 +64,17 @@
 #ifndef AP_MOTORS_FRAME_OCTAQUAD_COROTATING_SCALE_FACTOR
 #define AP_MOTORS_FRAME_OCTAQUAD_COROTATING_SCALE_FACTOR 0.9
 #endif
+
+// The Float airship allocation frame class. It carries a dense quadratic
+// program and a sixteen-way sector supervisor, so it is opt-in per board
+// rather than on by default; the Float boards and SITL turn it on.
+// It follows AP_FLOAT_MOTORS_ENABLED when that has been set on the command
+// line, so that one --define turns the whole Float mixer off across the
+// vehicle directory and this library together.
+#ifndef AP_MOTORS_AIRSHIP_ENABLED
+#if defined(AP_FLOAT_MOTORS_ENABLED)
+#define AP_MOTORS_AIRSHIP_ENABLED AP_FLOAT_MOTORS_ENABLED
+#else
+#define AP_MOTORS_AIRSHIP_ENABLED AP_MOTORS_FRAME_DEFAULT_ENABLED
+#endif
+#endif

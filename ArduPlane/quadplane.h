@@ -9,6 +9,8 @@
 #if HAL_QUADPLANE_ENABLED
 
 #include <AP_Motors/AP_Motors.h>
+#include <AP_Motors/AP_Motors_Airship.h>
+#include "float_config.h"
 #include <AC_PID/AC_PID.h>
 #include <AC_AttitudeControl/AC_AttitudeControl_Multi.h> // Attitude control library
 #include <AC_AttitudeControl/AC_CommandModel.h>
@@ -208,6 +210,13 @@ private:
 
     // Initialise motors to allow passing it to tailsitter in its constructor
     AP_MotorsMulticopter *motors = nullptr;
+#if AP_FLOAT_MOTORS_ENABLED && AP_MOTORS_AIRSHIP_ENABLED
+    // Non-null only on the Float airship frame class, where `motors` aliases
+    // it. The extra pointer exists because the wrench interface this frame
+    // needs — surge demand in, vertical state in — is wider than the base
+    // class carries, and a dynamic_cast every control cycle is not the answer.
+    AP_Motors_Airship *motors_airship = nullptr;
+#endif
     const struct AP_Param::GroupInfo *motors_var_info;
 
     AC_AttitudeControl_Multi *attitude_control;

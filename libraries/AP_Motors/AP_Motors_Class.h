@@ -70,6 +70,10 @@ public:
         MOTOR_FRAME_SCRIPTING_MATRIX = 15,
         MOTOR_FRAME_6DOF_SCRIPTING = 16,
         MOTOR_FRAME_DYNAMIC_SCRIPTING_MATRIX = 17,
+        // Float Cargo: wrench allocation over four tilting rotors on a 300
+        // degree arc (libraries/AP_Motors/AP_Motors_Airship). Numbered well
+        // clear of the upstream run so an upstream addition cannot collide.
+        MOTOR_FRAME_AIRSHIP = 20,
     };
 
     // return string corresponding to frame_class
