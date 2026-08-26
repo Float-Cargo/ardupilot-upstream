@@ -254,6 +254,14 @@ const AP_Param::GroupInfo AP_MotorsMulticopter::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("IDLE_SEC", 45, AP_MotorsMulticopter, _idle_time_delay_s, 0),
 
+#if AP_FLOAT_PATCHES_ENABLED
+    // @Param: THST_HVR_MIN
+    // @DisplayName: Hover Throttle Minimum
+    // @Description: Lower clamp on the hover throttle, applied both when the hover throttle is read as a feed-forward and when it is learned. The stock firmware hardcodes 0.125, which a buoyant vehicle can sit well below; lower this to the lowest hover throttle the airframe can actually reach.
+    // @Range: 0.0 0.5
+    // @User: Advanced
+    AP_GROUPINFO("THST_HVR_MIN", 46, AP_MotorsMulticopter, _throttle_hover_min, AP_MOTORS_THST_HOVER_MIN),
+#endif
     AP_GROUPEND
 };
 
@@ -558,7 +566,15 @@ void AP_MotorsMulticopter::update_throttle_hover(float dt)
 {
     if (_throttle_hover_learn != HOVER_LEARN_DISABLED) {
         // we have chosen to constrain the hover throttle to be within the range reachable by the third order expo polynomial.
+#if AP_FLOAT_PATCHES_ENABLED
+        // Float: the learn clamp is the second of the two 0.125 sites. Left
+        // stock it would pin a light airship's learned hover at 0.125 no
+        // matter how long it hovered, which is the same lie as the read
+        // clamp told a step later.
+        _throttle_hover.set(constrain_float(_throttle_hover + (dt / (dt + AP_MOTORS_THST_HOVER_TC)) * (get_throttle() - _throttle_hover), get_throttle_hover_min(), AP_MOTORS_THST_HOVER_MAX));
+#else
         _throttle_hover.set(constrain_float(_throttle_hover + (dt / (dt + AP_MOTORS_THST_HOVER_TC)) * (get_throttle() - _throttle_hover), AP_MOTORS_THST_HOVER_MIN, AP_MOTORS_THST_HOVER_MAX));
+#endif
     }
 }
 

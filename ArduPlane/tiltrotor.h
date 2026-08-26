@@ -15,6 +15,7 @@
 #pragma once
 
 #include <AP_Param/AP_Param.h>
+#include <AP_FloatConfig/float_config.h>
 #include "transition.h"
 #include <AP_Logger/LogStructure.h>
 
@@ -54,6 +55,14 @@ public:
     float tilt_max_change(bool up, bool in_flap_range = false) const;
     float get_fully_forward_tilt() const;
     float get_forward_flight_tilt() const;
+#if AP_FLOAT_PATCHES_ENABLED
+    // the largest tilt a pilot or the forward-throttle logic may command,
+    // as a fraction of 90 degrees. Stock behavior is get_forward_flight_tilt().
+    float get_max_commanded_tilt() const;
+    // the half-width of the vectored-yaw wedge as a fraction of the servo
+    // arc. Stock behavior is zero_out, the aft part of the arc.
+    float get_yaw_wedge(float total_angle, float zero_out) const;
+#endif
 
     // update yaw target for tiltrotor transition
     void update_yaw_target();
@@ -86,6 +95,11 @@ public:
     AP_Float fixed_angle;
     AP_Float fixed_gain;
     AP_Float flap_angle_deg;
+#if AP_FLOAT_PATCHES_ENABLED
+    AP_Float max_angle_ext_deg;   // Q_TILT_MAX_EXT: commanded tilt limit, may pass 90
+    AP_Float tilt_yaw_max;        // Q_TILT_YAW_MAX: vectored-yaw wedge half-width, deg
+    AP_Float pitch_gain;          // Q_TILT_PIT_GAIN: fore/aft pitch vectoring gain
+#endif
 
     float current_tilt;
     float current_throttle;
