@@ -39,6 +39,25 @@ modify-delete conflict.
 | `libraries/AP_Motors/AP_MotorsMulticopter.cpp` | edited | The same floor on the learn clamp, and the parameter table entry (group index 46) | `AP_FLOAT_PATCHES_ENABLED` | One line of `update_throttle_hover()` and one `AP_GROUPINFO`; index 46 was free at 4.7.0 and upstream may claim it |
 | `ArduPlane/tiltrotor.h` | edited | Declares `Q_TILT_MAX_EXT`, `Q_TILT_YAW_MAX`, `Q_TILT_PIT_GAIN` and the two helpers that read them | `AP_FLOAT_PATCHES_ENABLED` | Member and method declarations only |
 | `ArduPlane/tiltrotor.cpp` | edited | Commanded tilt may pass 90 deg to `Q_TILT_MAX_EXT`; the vectored-yaw wedge gets its own limit `Q_TILT_YAW_MAX`, decoupled from `Q_TILT_YAW_ANGLE`'s role in the tilt-to-servo mapping; `vectoring()` gains a fore/aft `pitch*sin(tilt)` term on `Q_TILT_PIT_GAIN`; parameter table entries 11-13 | `AP_FLOAT_PATCHES_ENABLED` | Four call sites of `get_forward_flight_tilt()`, `tilt_over_max_angle()`, and the output block of `vectoring()`; upstream reworks `vectoring()` occasionally, so that block is the real rebase risk |
+| `libraries/AP_Motors/AP_Motors_Airship_Alloc.{h,cpp}` | new | The wrench allocator: effectiveness matrix, (Tx,Tz) reparametrisation, sector supervisor, primal active-set QP | `AP_MOTORS_AIRSHIP_ENABLED` | Ours alone; no ArduPilot includes, compiles standalone against `fc/tools/alloc_replay.cpp` |
+| `libraries/AP_Motors/AP_Motors_Airship.{h,cpp}` | new | Frame class 20: `output_armed_stabilizing()` as the wrench allocation, direct tilt servo output, unclamped live hover estimate, FLAW/FLAM/FLAC allocation log | `AP_MOTORS_AIRSHIP_ENABLED` | Ours alone |
+| `fc/tools/alloc_replay.cpp` | new | Standalone driver that replays (wrench, tilt state) records through the firmware's allocator translation unit for the parity gate | — | Ours alone |
+| `libraries/AP_Motors/AP_Motors_config.h` | edited | `AP_MOTORS_AIRSHIP_ENABLED`, following `AP_FLOAT_MOTORS_ENABLED` when that is defined | `AP_MOTORS_AIRSHIP_ENABLED` | Seven lines appended at the end of the file; trivial to re-apply |
+| `libraries/AP_Motors/AP_Motors_Class.h` | edited | `MOTOR_FRAME_AIRSHIP = 20` in `motor_frame_class` | — | One enumerator, numbered clear of upstream's run (17 today); if upstream reaches 20, renumber here and in `sim/v0.parm` |
+| `ArduPlane/quadplane.h` | edited | `#include` of the airship class and `float_config.h`; `motors_airship` pointer beside `motors` | `AP_FLOAT_MOTORS_ENABLED` | Two hunks; the pointer sits under the same guard as everything that uses it |
+| `ArduPlane/quadplane.cpp` | edited | Frame-class case in `setup()` (defaults and motors object), the per-cycle surge and vertical-state push in `motors_output()`, `Q_FRAME_CLASS` value list | `AP_FLOAT_MOTORS_ENABLED` | Three hunks, each a `case` or a guarded block adjacent to an upstream `switch`; the parameter doc string edit is cosmetic |
+
+## Upstream edits as of G5
+
+Four upstream files carry `edited` rows: the motors configuration header, the frame-class
+enumeration, and the two quadplane files. All four edits are additive — a new enumerator, a new
+`case`, a guarded block, an appended `#ifndef` — and every one is under `AP_FLOAT_MOTORS_ENABLED`
+except the enumerator and the configuration default, which are inert when the macro is off
+because nothing then instantiates the class. Building with `--define AP_FLOAT_MOTORS_ENABLED=0`
+therefore reproduces the `fc-4.7.0-v0.0` binary's behaviour with `Q_FRAME_CLASS 20` rejected at
+boot as an unsupported frame, which is the A/B this manifest exists to make cheap.
+
+## Zero upstream edits at v0.0
 
 ## The zero-diff state, and what replaced it
 

@@ -147,7 +147,7 @@ const AP_Param::GroupInfo QuadPlane::var_info[] = {
     // @Param: FRAME_CLASS
     // @DisplayName: Frame Class
     // @Description: Controls major frame class for multicopter component
-    // @Values: 0:Undefined, 1:Quad, 2:Hexa, 3:Octa, 4:OctaQuad, 5:Y6, 7:Tri, 10: Single/Dual, 12:DodecaHexa, 14:Deca, 15:Scripting Matrix, 17:Dynamic Scripting Matrix
+    // @Values: 0:Undefined, 1:Quad, 2:Hexa, 3:Octa, 4:OctaQuad, 5:Y6, 7:Tri, 10: Single/Dual, 12:DodecaHexa, 14:Deca, 15:Scripting Matrix, 17:Dynamic Scripting Matrix, 20:Float Airship
     // @User: Standard
     AP_GROUPINFO("FRAME_CLASS", 46, QuadPlane, frame_class, 1),
 
@@ -719,6 +719,13 @@ bool QuadPlane::setup(void)
     case AP_Motors::MOTOR_FRAME_SCRIPTING_MATRIX:
     case AP_Motors::MOTOR_FRAME_DYNAMIC_SCRIPTING_MATRIX:
         break;
+#if AP_FLOAT_MOTORS_ENABLED && AP_MOTORS_AIRSHIP_ENABLED
+    case AP_Motors::MOTOR_FRAME_AIRSHIP:
+        // AP_Motors_Airship sets its own defaults for the four motors and the
+        // four tilt servos together, because on this frame the tilt outputs
+        // are part of the mixer rather than a separate tiltrotor schedule.
+        break;
+#endif
     default:
         AP_BoardConfig::config_error("Unsupported Q_FRAME_CLASS %u", (unsigned int)(frame_class.get()));
     }
@@ -747,6 +754,13 @@ bool QuadPlane::setup(void)
             motors_var_info = AP_MotorsMatrix_Scripting_Dynamic::var_info;
 #endif // AP_SCRIPTING_ENABLED
             break;
+#if AP_FLOAT_MOTORS_ENABLED && AP_MOTORS_AIRSHIP_ENABLED
+    case AP_Motors::MOTOR_FRAME_AIRSHIP:
+        motors_airship = NEW_NOTHROW AP_Motors_Airship(rc_speed);
+        motors = motors_airship;
+        motors_var_info = AP_Motors_Airship::var_info;
+        break;
+#endif
     default:
         motors = NEW_NOTHROW AP_MotorsMatrix(rc_speed);
         motors_var_info = AP_MotorsMatrix::var_info;
@@ -2030,6 +2044,21 @@ void QuadPlane::motors_output(bool run_rate_controller)
 
     // see if motors should be shut down
     update_throttle_suppression();
+
+#if AP_FLOAT_MOTORS_ENABLED && AP_MOTORS_AIRSHIP_ENABLED
+    if (motors_airship != nullptr) {
+        // The airship mixer consumes a wrench, so the manual forward throttle
+        // that the stock path turns into a tilt schedule becomes a surge
+        // demand here instead, and the vertical state it needs — to know when
+        // commanded lift equals heaviness — is pushed in rather than reached
+        // for from inside a motors library.
+        motors_airship->set_forward(0.01f * forward_throttle_pct());
+        Vector3f vel_ned_ms;
+        if (ahrs.get_velocity_NED(vel_ned_ms)) {
+            motors_airship->set_air_state(-vel_ned_ms.z, ahrs.get_accel_ef().z);
+        }
+    }
+#endif
 
     motors->output();
 
