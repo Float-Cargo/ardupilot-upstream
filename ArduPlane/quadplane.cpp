@@ -2055,7 +2055,10 @@ void QuadPlane::motors_output(bool run_rate_controller)
         motors_airship->set_forward(0.01f * forward_throttle_pct());
         Vector3f vel_ned_ms;
         if (ahrs.get_velocity_NED(vel_ned_ms)) {
-            motors_airship->set_air_state(-vel_ned_ms.z, ahrs.get_accel_ef().z);
+            // AC_PosControl::get_estimated_accel_D_mss() convention: accel_ef carries
+            // gravity, so at rest its z is -g and adding GRAVITY_MSS leaves the
+            // vertical acceleration alone
+            motors_airship->set_air_state(-vel_ned_ms.z, ahrs.get_accel_ef().z + GRAVITY_MSS);
         }
     }
 #endif
