@@ -1,0 +1,151 @@
+# Float Cargo firmware continuous integration.
+#
+# Three build targets and one simulation gate. The builds run in upstream's own
+# container image, which already carries the pinned gcc-arm-none-eabi-10 and a
+# ccache shim on PATH, so no toolchain is hand-installed here. The simulation
+# gate flies the v0-sim regression suite against the firmware from this pull
+# request, which is what makes a firmware change provably suite-green on the
+# pull request that needs it rather than after the fact in another repository.
+name: fc-build
+
+on:
+  pull_request:
+    branches: [ 'fc/**' ]
+  push:
+    branches: [ 'fc/main' ]
+    tags: [ 'fc-*' ]
+  workflow_dispatch:
+
+concurrency:
+  group: fc-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    container: ardupilot/ardupilot-dev-chibios:v0.1.3
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [ CubeOrange, CubeOrangePlus, sitl ]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ matrix.board }}-${{ github.sha }}
+          restore-keys: ccache-${{ matrix.board }}-
+      - name: Build
+        run: |
+          . .github/workflows/ccache.env
+          export PATH=/usr/lib/ccache:/opt/gcc-arm-none-eabi-10-2020-q4-major/bin:$PATH
+          # empy must stay 3.3.4: ArduPilot's mavgen breaks on 4.x.
+          python3 -m pip install "empy==3.3.4" pexpect future pymavlink
+          ./waf configure --board ${{ matrix.board }}
+          ./waf plane
+      - name: Manifest
+        run: python3 fc/scripts/make_manifest.py build/${{ matrix.board }}/bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arduplane-${{ matrix.board }}-${{ github.sha }}
+          path: |
+            build/${{ matrix.board }}/bin/arduplane*
+            build/${{ matrix.board }}/bin/manifest.json
+
+  prep:
+    runs-on: ubuntu-22.04
+    outputs:
+      v0sim_ref: ${{ steps.ref.outputs.v0sim_ref }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: ref
+        name: Read fc/ci/v0sim-ref
+        run: |
+          ref="$(tr -d '[:space:]' < fc/ci/v0sim-ref)"
+          echo "v0sim_ref=${ref:-main}" >> "$GITHUB_OUTPUT"
+          # The ref file is a loan, not a home: a firmware change that
+          # legitimately changes suite expectations points it at a v0-sim
+          # branch for one release window and then resets it to main.
+          if [ "${{ github.event_name }}" = "push" ] && \
+             [ "${{ github.ref }}" = "refs/heads/fc/main" ] && \
+             [ "$ref" != "main" ]; then
+            echo "::warning::fc/ci/v0sim-ref is '$ref', not 'main', on fc/main"
+          fi
+
+  sitl-suite:
+    needs: prep
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout v0-sim (no submodules)
+        uses: actions/checkout@v5
+        with:
+          repository: Float-Cargo/v0-sim
+          ref: ${{ needs.prep.outputs.v0sim_ref }}
+          token: ${{ secrets.FC_V0SIM_READ_TOKEN }}
+      - name: Overlay this firmware as the submodule
+        uses: actions/checkout@v5
+        with:
+          path: ardupilot
+          submodules: recursive
+      - name: Cache the SITL build
+        uses: actions/cache@v4
+        with:
+          # Never cache ardupilot/modules: restoring submodule worktrees
+          # without their gitdirs corrupts the next checkout.
+          path: ardupilot/build
+          key: suite-sitl-${{ github.sha }}
+          restore-keys: suite-sitl-
+      - name: Build SITL and fly the suite
+        run: |
+          python3 -m venv .venv-sitl
+          .venv-sitl/bin/pip install "empy==3.3.4" pexpect future pymavlink MAVProxy
+          (cd ardupilot && ../.venv-sitl/bin/python ./waf configure --board sitl \
+                        && ../.venv-sitl/bin/python ./waf plane)
+          python3 -m venv .venv
+          .venv/bin/pip install -e .
+          .venv/bin/python scripts/suite.py --speedup 10
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/fc-')
+    needs: [ build, sitl-suite ]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Rename per board and merge the manifests
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          mkdir -p release
+          python3 - "$tag" <<'EOF'
+          import json, pathlib, shutil, sys
+          tag = sys.argv[1]
+          merged = {"tag": tag, "boards": {}}
+          for d in sorted(pathlib.Path("artifacts").glob("arduplane-*")):
+              board = d.name.split("-")[1]
+              m = d / "manifest.json"
+              if m.exists():
+                  doc = json.loads(m.read_text())
+                  merged.setdefault("git_sha", doc.get("git_sha"))
+                  merged.setdefault("base_tag", doc.get("base_tag"))
+                  merged.setdefault("toolchain", doc.get("toolchain"))
+                  merged.setdefault("empy", doc.get("empy"))
+                  merged["boards"].update(doc.get("boards", {}))
+              for f in d.glob("arduplane*"):
+                  suffix = f.name[len("arduplane"):]
+                  shutil.copy(f, pathlib.Path("release") / f"arduplane-{tag}-{board}{suffix}")
+          merged["workflow_run"] = "${{ github.run_id }}"
+          pathlib.Path("release/manifest.json").write_text(json.dumps(merged, indent=2, sort_keys=True) + "\n")
+          print(json.dumps(merged, indent=2, sort_keys=True))
+          EOF
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" release/* --repo "${GITHUB_REPOSITORY}" --generate-notes
