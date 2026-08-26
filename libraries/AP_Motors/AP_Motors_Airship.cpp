@@ -131,10 +131,10 @@ const AP_Param::GroupInfo AP_Motors_Airship::var_info[] = {
 
     // @Param: AS_HOVTC
     // @DisplayName: Airship buoyancy trim time constant
-    // @Description: Time constant of the filter behind get_throttle_hover(). Buoyancy moves with gas temperature and fabric stretch within minutes of takeoff, so this tracks rather than learns-and-saves.
+    // @Description: Time constant of the filter behind get_throttle_hover(). Buoyancy moves with gas temperature and fabric stretch within minutes of takeoff, so this tracks rather than learns-and-saves; at 0.3 kg/min the lag this introduces is 0.0095 in throttle units per 20 s of time constant. It is long compared with the vertical loop's hunting period so that what is left of the heave transient after AS_HEAVEM and AS_HEAVEC have been subtracted averages out.
     // @Units: s
     // @User: Advanced
-    AP_GROUPINFO("AS_HOVTC", 14, AP_Motors_Airship, _hover_tc, 5.0f),
+    AP_GROUPINFO("AS_HOVTC", 14, AP_Motors_Airship, _hover_tc, 20.0f),
 
     // @Param: AS_HOVINI
     // @DisplayName: Airship buoyancy trim at boot
@@ -167,6 +167,20 @@ const AP_Param::GroupInfo AP_Motors_Airship::var_info[] = {
     // @Values: 0:Disabled,1:Enabled
     // @User: Advanced
     AP_GROUPINFO("AS_LOG", 19, AP_Motors_Airship, _alloc_log, 0),
+
+    // @Param: AS_HEAVEM
+    // @DisplayName: Airship effective heave mass
+    // @Description: Inertial mass plus the Lamb added mass in heave, the coefficient on vertical acceleration in the heave equation the hover estimate inverts: weight = lift - AS_HEAVEM * a_up - AS_HEAVEC * v_up. For the V0 the plant's mass matrix gives 26.6 kg of mass and 20.4 kg of entrained air.
+    // @Units: kg
+    // @User: Advanced
+    AP_GROUPINFO("AS_HEAVEM", 21, AP_Motors_Airship, _heave_mass_kg, 46.9f),
+
+    // @Param: AS_HEAVEC
+    // @DisplayName: Airship linear heave damping
+    // @Description: Coefficient on vertical velocity in the heave equation the hover estimate inverts. The plant's placeholder residual linear damping in heave; a steady 0.1 m/s climb otherwise reads as 1.8 N of extra weight.
+    // @Units: N.s/m
+    // @User: Advanced
+    AP_GROUPINFO("AS_HEAVEC", 22, AP_Motors_Airship, _heave_damp_nsm, 18.0f),
 
     // @Param: AS_SUPER
     // @DisplayName: Airship supervisor period
@@ -318,23 +332,30 @@ void AP_Motors_Airship::update_hover_estimate(float dt)
     if (dt <= 0.0f || !is_positive(_hover_tc.get())) {
         return;
     }
-    if (_spool_state != SpoolState::THROTTLE_UNLIMITED) {
+    if (_spool_state != SpoolState::THROTTLE_UNLIMITED || !_air_state_valid) {
         return;
     }
-    // Only integrate where the identity holds. In quasi-steady vertical
-    // flight the commanded vertical force IS the heaviness, because nothing
-    // else is left over; during a climb it is heaviness plus whatever is
-    // accelerating the hull and its entrained air, and the entrained part is
-    // a Lamb coefficient rather than a measurement, so the honest move is to
-    // stop integrating rather than to model it.
-    if (_air_state_valid &&
-        (fabsf(_climb_rate_ms) > 0.35f || fabsf(_accel_d_mss) > 0.5f)) {
+    // The heave equation, solved for the weight the rotors are carrying:
+    //
+    //     L = W + m_eff * a_up + c * v_up      so      W = L - m_eff a_up - c v_up
+    //
+    // The acceleration term is not small on this hull: the entrained air
+    // nearly doubles the mass in heave, so the vertical loop's ordinary
+    // hunting at a few tenths of a metre per second squared moves the lift by
+    // a tenth of full scale, and an estimate that only gates on "quiet
+    // enough" admits exactly the turning points where that error peaks.
+    // Subtracting the modelled terms is what lets the filter see the weight
+    // through the transient rather than waiting for one that never comes.
+    // The gates that remain guard against manoeuvres, not against hunting.
+    if (fabsf(_climb_rate_ms) > 1.0f || fabsf(_accel_d_mss) > 1.0f) {
         return;
     }
     const float total = 4.0f * MAX(_tmax_n.get(), 0.1f);
-    const float lift_frac = (float)(-_w_realized[2]) / total;
+    const float lift_n = (float)(-_w_realized[2]);
+    const float a_up = -_accel_d_mss;
+    const float weight_n = lift_n - _heave_mass_kg.get() * a_up - _heave_damp_nsm.get() * _climb_rate_ms;
     const float alpha = dt / (dt + _hover_tc.get());
-    _hover_est += alpha * (constrain_float(lift_frac, 0.0f, 1.0f) - _hover_est);
+    _hover_est += alpha * (constrain_float(weight_n / total, 0.0f, 1.0f) - _hover_est);
     _hover_est = constrain_float(_hover_est, 0.01f, 0.95f);
 }
 
