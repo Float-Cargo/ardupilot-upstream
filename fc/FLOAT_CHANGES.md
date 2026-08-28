@@ -46,6 +46,7 @@ modify-delete conflict.
 | `libraries/AP_Motors/AP_Motors_Class.h` | edited | `MOTOR_FRAME_AIRSHIP = 20` in `motor_frame_class` | — | One enumerator, numbered clear of upstream's run (17 today); if upstream reaches 20, renumber here and in `sim/v0.parm` |
 | `ArduPlane/quadplane.h` | edited | `#include` of the airship class and `float_config.h`; `motors_airship` pointer beside `motors` | `AP_FLOAT_MOTORS_ENABLED` | Two hunks; the pointer sits under the same guard as everything that uses it |
 | `ArduPlane/quadplane.cpp` | edited | Frame-class case in `setup()` (defaults and motors object), the per-cycle surge and vertical-state push in `motors_output()`, `Q_FRAME_CLASS` value list | `AP_FLOAT_MOTORS_ENABLED` | Three hunks, each a `case` or a guarded block adjacent to an upstream `switch`; the parameter doc string edit is cosmetic |
+| `Tools/autotest/run_in_terminal_window.sh` | edited | Headless SITL console log goes to a per-user, per-invocation path; upstream's fixed `/tmp/$name.log` is unwritable by a second UID on a shared box, and the failure is silent | — | One line in the final `else` branch; upstream touches this file rarely (Zellij support, tmux prefix) |
 
 ## Upstream edits as of G5
 
@@ -56,6 +57,11 @@ except the enumerator and the configuration default, which are inert when the ma
 because nothing then instantiates the class. Building with `--define AP_FLOAT_MOTORS_ENABLED=0`
 therefore reproduces the `fc-4.7.0-v0.0` binary's behaviour with `Q_FRAME_CLASS 20` rejected at
 boot as an unsupported frame, which is the A/B this manifest exists to make cheap.
+
+`Tools/autotest/run_in_terminal_window.sh` is `edited` too, but it is test-harness
+scaffolding rather than a compiled source: it enters no binary, sits under no feature macro,
+and leaves the comparison above untouched. The counts in this section and in "The zero-diff
+state" are about compiled sources only.
 
 ## Zero upstream edits at v0.0
 
