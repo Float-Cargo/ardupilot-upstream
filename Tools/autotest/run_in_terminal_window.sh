@@ -48,7 +48,17 @@ elif [ -n "$ZELLIJ" ]; then
   # Create a new pane to run
   zellij run -n "$name" -- "$1" "${@:2}"
 else
-  filename="/tmp/$name.log"
+  # FLOAT: per-user, per-invocation log path. A fixed /tmp/$name.log is
+  # machine-global, and /tmp is sticky, so on a box where more than one UID
+  # runs SITL only the first one to create the file can ever write it. Every
+  # later user's redirect below fails with EACCES, the binary is never
+  # exec'd, and this script still exits 0 -- the caller just sees a vehicle
+  # that never opens its MAVLink port. The Float sim box hit exactly that on
+  # 2026-08-27: /tmp/ArduPlane.log was owned by james, the simbox CI gate
+  # runs as svc-ci, and all six suite scenarios failed "tcp:5760 never
+  # opened" with no other diagnostic. $$ also keeps concurrent instances
+  # (sim_vehicle -I N) from interleaving into one file.
+  filename="${TMPDIR:-/tmp}/$name-$(id -un)-$$.log"
   echo "RiTW: Window access not found, logging to $filename"
   cmd="$1"
   shift
