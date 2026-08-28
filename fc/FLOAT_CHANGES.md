@@ -46,6 +46,9 @@ modify-delete conflict.
 | `libraries/AP_Motors/AP_Motors_Class.h` | edited | `MOTOR_FRAME_AIRSHIP = 20` in `motor_frame_class` | — | One enumerator, numbered clear of upstream's run (17 today); if upstream reaches 20, renumber here and in `sim/v0.parm` |
 | `ArduPlane/quadplane.h` | edited | `#include` of the airship class and `float_config.h`; `motors_airship` pointer beside `motors` | `AP_FLOAT_MOTORS_ENABLED` | Two hunks; the pointer sits under the same guard as everything that uses it |
 | `ArduPlane/quadplane.cpp` | edited | Frame-class case in `setup()` (defaults and motors object), the per-cycle surge and vertical-state push in `motors_output()`, `Q_FRAME_CLASS` value list | `AP_FLOAT_MOTORS_ENABLED` | Three hunks, each a `case` or a guarded block adjacent to an upstream `switch`; the parameter doc string edit is cosmetic |
+| `Tools/autotest/run_in_terminal_window.sh` | edited | Headless console log honors `TMPDIR` rather than a hardcoded `/tmp/$name.log`, so a caller can give each run its own directory | — | One line in the final `else` branch; upstream touches this file rarely |
+| `tests/test_run_in_terminal_window.py` | new | Covers the above: `TMPDIR` decides the log's location, and the `/tmp` fallback still works | — | Ours until upstream takes it; written to apply to stock ArduPilot |
+| `.github/workflows/pre-commit.yml` | edited | Runs the whole `tests/` directory instead of naming one file, so added tests are exercised | — | One line; disabled in this fork by `fc/scripts/disable_upstream_workflows.sh`, so it earns us nothing locally and exists for the upstream submission |
 
 ## Upstream edits as of G5
 
@@ -56,6 +59,11 @@ except the enumerator and the configuration default, which are inert when the ma
 because nothing then instantiates the class. Building with `--define AP_FLOAT_MOTORS_ENABLED=0`
 therefore reproduces the `fc-4.7.0-v0.0` binary's behaviour with `Q_FRAME_CLASS 20` rejected at
 boot as an unsupported frame, which is the A/B this manifest exists to make cheap.
+
+The three rows below the compiled sources are `edited`/`new` too, but they are test and CI
+scaffolding: they enter no binary, sit under no feature macro, and leave the comparison above
+untouched. All three are written in upstream's terms and apply to stock ArduPilot unchanged.
+The counts in this section and in "The zero-diff state" are about compiled sources only.
 
 ## Zero upstream edits at v0.0
 
