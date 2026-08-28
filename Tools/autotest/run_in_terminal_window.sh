@@ -48,7 +48,13 @@ elif [ -n "$ZELLIJ" ]; then
   # Create a new pane to run
   zellij run -n "$name" -- "$1" "${@:2}"
 else
-  filename="/tmp/$name.log"
+  # Honor TMPDIR, as the SITL_RITW_TERMINAL branch above already does. A
+  # hardcoded /tmp gives every caller on the machine one path, and two
+  # writers cannot share it: concurrent instances overwrite each other, and
+  # on a multi-user host the first user to create the file owns it -- /tmp
+  # is sticky, so everyone else's redirect below fails and the vehicle
+  # never starts.
+  filename="${TMPDIR:-/tmp}/$name.log"
   echo "RiTW: Window access not found, logging to $filename"
   cmd="$1"
   shift
