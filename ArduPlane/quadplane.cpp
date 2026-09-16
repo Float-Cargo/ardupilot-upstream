@@ -4371,14 +4371,14 @@ bool SLT_Transition::show_vtol_view() const
 
 /*
   return the PILOT_SPD_DN value if non zero, otherwise returns the PILOT_SPD_UP value.
-  return is in cm/s
+  return is in m/s
 */
-uint16_t QuadPlane::get_pilot_velocity_z_max_dn_m() const
+float QuadPlane::get_pilot_velocity_z_max_dn_m() const
 {
     if (is_zero(pilot_speed_z_max_dn_ms)) {
-        return abs(pilot_speed_z_max_up_ms);
+        return fabsf(pilot_speed_z_max_up_ms);
     }
-    return abs(pilot_speed_z_max_dn_ms);
+    return fabsf(pilot_speed_z_max_dn_ms);
 }
 
 /*
